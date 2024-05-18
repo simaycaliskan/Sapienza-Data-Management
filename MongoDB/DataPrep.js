@@ -89,4 +89,103 @@ db.televote_results_all_years.find().forEach(function(doc) {
     db.Results_all_years.insertOne(doc);
 });
 
+// We noticed the name of the "Czech Republic" is changed to "Czechia" in 2023.
+// After checking the other table's too, we changed "Czechia" data into "Czech Republic" and
+// deleted the data related to the old name.
+
+// Rename "Czech Republic" field to "Czechia" and preserve its value
+// Find documents where 'Czechia' field exists
+db.Results_all_years.find({ "Czechia": { $exists: true } }).forEach(function(doc) {
+    // Set the value of 'Czech Republic' field to the value of 'Czechia' field
+    db.Results_all_years.update(
+        { "_id": doc._id }, // Find the document by its _id
+        { $set: { "Czech Republic": doc.Czechia } } // Set 'Czech Republic' field to the value of 'Czechia' field
+    );
+});
+
+// Remove 'Czechia' field from all documents
+db.Results_all_years.updateMany({}, { $unset: { "Czechia": "" } });
+
+
+// Fix the winner data and add the missing value of 2023 
+
+// Create winner_data collection with adjusted years and winner data
+db.contest_data.aggregate([
+    {
+        $project: {
+            years: { $subtract: ["$year", 1] }, // Subtract 1 from the year field
+            winner: "$host" // Rename host field to winner
+        }
+    },
+    {
+        $out: "winner_data" // Output the transformed documents to winner_data collection
+    }
+]);
+
+// Update winner data for 2022 to 'Ukraine'
+db.winner_data.updateMany(
+    { years: 2022 },
+    { $set: { winner: "Ukraine" } }
+);
+
+// Update year value for 2020 to 2019
+db.winner_data.updateMany(
+    { years: 2020 },
+    { $set: { years: 2019 } }
+);
+
+// Insert winner data for 2023
+db.winner_data.insertOne({ years: 2023, winner: "Sweden" });
+
+
+// Adding winner flag to song_data_winner table
+
+// Create song_data_winner collection by performing a left join between song_data and winner_data
+db.song_data.aggregate([
+    {
+        $lookup: {
+            from: "winner_data",
+            localField: "year",
+            foreignField: "years",
+            as: "winner_data"
+        }
+    },
+    {
+        $addFields: {
+            winner: { $arrayElemAt: ["$winner_data.winner", 0] } // Extract the winner field from the joined document
+        }
+    },
+    {
+        $addFields: {
+            winner_flag: { $cond: { if: { $eq: ["$winner", null] }, then: 0, else: 1 } } // Set winner_flag based on winner field
+        }
+    },
+    {
+        $project: {
+            winner_data: 0 // Exclude winner_data field
+        }
+    },
+    {
+        $out: "song_data_winner" // Output the transformed documents to song_data_winner collection
+    }
+]);
+
+
+// Update winner_flag based on the presence of the winner field
+db.song_data_winner.updateMany(
+    {},
+    [
+        {
+            $set: {
+                winner_flag: {
+                    $cond: { if: { $ne: ["$winner", null] }, then: 1, else: 0 }
+                }
+            }
+        }
+    ]
+);
+
+// Drop 'years' and 'winner' fields from the song_data_winner collection
+db.song_data_winner.updateMany({}, { $unset: { years: "", winner: "" } });
+
 

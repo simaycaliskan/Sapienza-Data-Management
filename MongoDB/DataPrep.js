@@ -140,7 +140,7 @@ db.winner_data.insertOne({ years: 2023, winner: "Sweden" });
 
 // Adding winner flag to song_data_winner table
 
-// Create song_data_winner collection by performing a left join between song_data and winner_data
+// Step 1: Perform the left join between song_data and winner_data
 db.song_data.aggregate([
     {
         $lookup: {
@@ -151,41 +151,34 @@ db.song_data.aggregate([
         }
     },
     {
-        $addFields: {
-            winner: { $arrayElemAt: ["$winner_data.winner", 0] } // Extract the winner field from the joined document
+        $unwind: {
+            path: "$winner_data",
+            preserveNullAndEmptyArrays: true
         }
     },
     {
         $addFields: {
-            winner_flag: { $cond: { if: { $eq: ["$winner", null] }, then: 0, else: 1 } } // Set winner_flag based on winner field
-        }
-    },
-    {
-        $project: {
-            winner_data: 0 // Exclude winner_data field
-        }
-    },
-    {
-        $out: "song_data_winner" // Output the transformed documents to song_data_winner collection
-    }
-]);
-
-
-// Update winner_flag based on the presence of the winner field
-db.song_data_winner.updateMany(
-    {},
-    [
-        {
-            $set: {
-                winner_flag: {
-                    $cond: { if: { $ne: ["$winner", null] }, then: 1, else: 0 }
+            winner_flag: {
+                $cond: {
+                    if: { $and: [{ $eq: ["$year", "$winner_data.years"] }, { $eq: ["$country", "$winner_data.winner"] }] },
+                    then: 1,
+                    else: 0
                 }
             }
         }
-    ]
+    },
+    {
+        $out: "song_data_winner"
+    }
+]);
+
+// Step 2: Clean up the collection by removing the fields "years" and "winner"
+db.song_data_winner.updateMany(
+    {},
+    { $unset: { "winner_data": "" } }
 );
 
-// Drop 'years' and 'winner' fields from the song_data_winner collection
-db.song_data_winner.updateMany({}, { $unset: { years: "", winner: "" } });
-
-
+// Verification: Optional step to ensure all documents have been processed correctly
+db.song_data_winner.find().forEach(doc => {
+    printjson(doc);
+});
